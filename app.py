@@ -358,14 +358,28 @@ async def coach_endpoint(request: Request):
     if guard:
         return guard
 
-    data = await request.json()
-    transcript = (data.get("transcript") or "").strip()
+    # ✅ robust body parsing (prevents 500 in production)
+    try:
+        data = await request.json()
+        transcript = (data.get("transcript") or "").strip()
+    except Exception as e:
+        raw = (await request.body()).decode("utf-8", errors="ignore").strip()
+        print("[/coach] bad json body:", repr(e))
+        print("[/coach] raw body head:", raw[:200])
+        # fallback: treat raw body as transcript (or return 400)
+        transcript = raw
 
     try:
         return JSONResponse(coach_tips(transcript))
     except Exception as e:
-        return JSONResponse({"detail": str(e)}, status_code=500)
-
+        import traceback
+        print("[/coach] coach_tips crashed:", repr(e))
+        print(traceback.format_exc())
+        # ✅ return safe response instead of 500
+        return JSONResponse(
+            {"should_intervene": False, "tip": "", "reason_tag": "server_error", "urgency": "low"},
+            status_code=200,
+        )
 
 # -------------------------
 # Training after-call -> returns attempt_id for redirect
