@@ -29,6 +29,7 @@ load_dotenv()
 
 app = FastAPI()
 app.add_middleware(SessionMiddleware, secret_key=APP_SECRET, same_site="lax", https_only=False)
+print("🚨🚨 RAILWAY APP.PY LOADED — VERSION 29 JAN 22:45 🚨🚨")
 
 # -------------------------
 # Static
