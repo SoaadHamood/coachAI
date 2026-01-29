@@ -1298,7 +1298,7 @@ def build_admin_html(user_email: str) -> str:
     return ADMIN_HTML.replace("__THEME_CSS__", THEME_CSS).replace("__USER__", safe_user)
 
 def build_onboarding_html(cfg: dict, done: bool = False) -> str:
-    pdf_url = (cfg or {}).get("pdf_url") or "/static/onboarding.pdf"
+    pdf_url = (cfg or {}).get("pdf_url") or "onboarding.pdf"
     video_url = (cfg or {}).get("video_url") or "https://www.youtube.com/"
     html = ONBOARDING_HTML.replace("__THEME_CSS__", THEME_CSS)
     html = html.replace("__PDF__", (pdf_url or "").replace("<","").replace(">",""))
