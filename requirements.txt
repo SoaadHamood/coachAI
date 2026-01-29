@@ -7,3 +7,4 @@ jinja2
 pydantic
 websockets
 itsdangerous
+openai>=1.0.0
