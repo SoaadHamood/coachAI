@@ -364,7 +364,7 @@ def evaluate_checklist(transcript: str, customer_type: str = "", emotion_level: 
             "checklist_score": 0,
             "items": [],
             "highlights": [],
-            "improvements": ["Could not parse checklist output."],
+            "improvements": ["Could not parse checklist output2222."],
             "next_time_say": [],
         }
 
