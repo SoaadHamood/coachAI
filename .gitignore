@@ -9,6 +9,9 @@ venv/
 
 # PyCharm
 .idea/
+# secrets
+.streamlit/secrets.toml
+.env
 
 # OS
 .DS_Store
