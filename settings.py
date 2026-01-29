@@ -10,6 +10,7 @@ BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(BASE_DIR / ".env", override=True)
 
 
+
 def env_str(name: str, default: str = "") -> str:
     v = os.getenv(name, default)
     if v is None:
