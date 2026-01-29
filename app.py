@@ -350,6 +350,8 @@ async def session_endpoint(request: Request):
 # -------------------------
 from settings import client  # make sure this import exists
 
+from settings import client  # make sure this import exists
+
 @app.post("/coach")
 async def coach_endpoint(request: Request):
     redirect = require_login(request)
