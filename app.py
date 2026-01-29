@@ -29,7 +29,6 @@ load_dotenv()
 
 app = FastAPI()
 app.add_middleware(SessionMiddleware, secret_key=APP_SECRET, same_site="lax", https_only=False)
-print("🚨🚨 RAILWAY APP.PY LOADED — VERSION 29 JAN 22:45 🚨🚨")
 
 # -------------------------
 # Static
@@ -349,6 +348,8 @@ async def session_endpoint(request: Request):
 # -------------------------
 # Live coach (Training only)
 # -------------------------
+from settings import client  # make sure this import exists
+
 @app.post("/coach")
 async def coach_endpoint(request: Request):
     redirect = require_login(request)
@@ -359,28 +360,46 @@ async def coach_endpoint(request: Request):
     if guard:
         return guard
 
-    # ✅ robust body parsing (prevents 500 in production)
+    # ---------- SAFE BODY PARSING ----------
     try:
         data = await request.json()
         transcript = (data.get("transcript") or "").strip()
     except Exception as e:
         raw = (await request.body()).decode("utf-8", errors="ignore").strip()
-        print("[/coach] bad json body:", repr(e))
-        print("[/coach] raw body head:", raw[:200])
-        # fallback: treat raw body as transcript (or return 400)
+        print("[/coach] invalid JSON body:", repr(e))
+        print("[/coach] raw body:", raw[:200])
         transcript = raw
 
+    # ---------- DEBUG OPENAI SDK (TEMPORARY) ----------
     try:
-        return JSONResponse(coach_tips(transcript))
+        import openai
+        print("[/coach] openai version:", getattr(openai, "__version__", "unknown"))
+    except Exception as e:
+        print("[/coach] cannot import openai:", repr(e))
+
+    print("[/coach] client:", type(client))
+    print("[/coach] has client.responses:", hasattr(client, "responses"))
+
+    # ---------- SAFE COACHING ----------
+    try:
+        result = coach_tips(transcript)
+        return JSONResponse(result)
     except Exception as e:
         import traceback
         print("[/coach] coach_tips crashed:", repr(e))
         print(traceback.format_exc())
-        # ✅ return safe response instead of 500
+
+        # IMPORTANT: do NOT return 500 — keep UI alive
         return JSONResponse(
-            {"should_intervene": False, "tip": "", "reason_tag": "server_error", "urgency": "low"},
+            {
+                "should_intervene": False,
+                "tip": "",
+                "reason_tag": "server_error",
+                "urgency": "low",
+            },
             status_code=200,
         )
+
 
 # -------------------------
 # Training after-call -> returns attempt_id for redirect
