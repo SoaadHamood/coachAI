@@ -243,57 +243,150 @@ def _next_missing_step(state: dict, transcript: str) -> Optional[str]:
 # -------------------------
 # Public API
 # -------------------------
-def coach_tips(transcript: str) -> Dict[str, Any]:
-    if client is None:
-        return {"should_intervene": False, "tip": "", "reason_tag": "missing_key", "urgency": "low"}
+# evaluation.py
+import re
+import time
+from typing import Dict, Any
 
-    # Show tips only right after CUSTOMER spoke (best timing)
-    last = _last_nonempty_line(transcript).upper()
-    if last and not last.startswith("CUSTOMER:"):
-        return {"should_intervene": False, "tip": "", "reason_tag": "timing", "urgency": "low"}
+_LAST_TIP_AT = 0.0
 
-    state = _script_state(transcript)
-    missing = _next_missing_step(state, transcript)
-    if not missing:
-        return {"should_intervene": False, "tip": "", "reason_tag": "other", "urgency": "low"}
+_FILLERS = ["um", "uh", "erm", "like", "you know", "actually", "basically"]
+_UNCONFIDENT = ["maybe", "i think", "probably", "not sure", "i guess", "kind of", "sort of"]
 
-    focus = _extract_recent_context(transcript)
-    user_msg = (
-        "Return STRICT JSON only.\n"
-        f"Your single job: coach the NEXT missing checklist step: {missing}\n"
-        "Tip must match the last 1–2 turns.\n\n"
-        f"Transcript (recent):\n{focus}"
-    )
 
-    txt = _responses_text(COACH_SYSTEM_PROMPT, user_msg, COACH_MODEL, max_output_tokens=200)
-    data = _extract_first_json_object(txt)
-    if not data:
-        # In prod, seeing this means the model added non-JSON text/fences.
-        print("[evaluation] coach raw (non-json):", (txt or "")[:800])
-        return {"should_intervene": False, "tip": "", "reason_tag": "parse_error", "urgency": "low"}
+def _count_fillers(text: str) -> int:
+    t = (text or "").lower()
+    count = 0
+    for f in _FILLERS:
+        count += t.count(f)
+    # stutter like "I I", "we we"
+    count += len(re.findall(r"\b(\w+)\s+\1\b", t))
+    return count
 
-    tip = str(data.get("tip") or "").strip()
-    if not tip:
-        return {"should_intervene": False, "tip": "", "reason_tag": "other", "urgency": "low"}
 
-    # clamp length
-    words = tip.split()
-    if len(words) > 16:
-        tip = " ".join(words[:16])
+def _has_unconfident(text: str) -> bool:
+    t = (text or "").lower()
+    return any(p in t for p in _UNCONFIDENT)
 
-    reason = str(data.get("reason_tag") or missing or "other").strip().lower()
-    if reason not in {"opening", "identification", "listening", "empathy", "clarify", "restate", "tone", "expectations", "close", "feedback", "other"}:
-        reason = "other"
 
-    urgency = str(data.get("urgency") or "low").strip().lower()
-    if urgency not in {"low", "medium", "high"}:
-        urgency = "low"
+def coach_tips(transcript: str, meta: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    """
+    Returns:
+    {
+      should_intervene: bool,
+      tip: str,
+      reason_tag: str,
+      urgency: low|medium|high
+    }
+    """
+    global _LAST_TIP_AT
+    meta = meta or {}
 
-    should = bool(data.get("should_intervene", True))
-    if not tip:
-        should = False
+    # ------------------
+    # Cooldown (anti-spam)
+    # ------------------
+    now = time.time()
+    COOLDOWN_SEC = 12
+    if now - _LAST_TIP_AT < COOLDOWN_SEC:
+        return {
+            "should_intervene": False,
+            "tip": "",
+            "reason_tag": "cooldown",
+            "urgency": "low",
+        }
 
-    return {"should_intervene": should, "tip": tip, "reason_tag": reason, "urgency": urgency}
+    silence_ms = int(meta.get("silence_ms") or 0)
+    agent_last = (meta.get("agent_last_utterance") or "").strip()
+    recent_text = agent_last or transcript[-300:]
+
+    fillers = _count_fillers(recent_text)
+    unconfident = _has_unconfident(recent_text)
+
+    trigger = None
+    urgency = "low"
+
+    # ------------------
+    # Trigger detection
+    # ------------------
+    if silence_ms >= 3500:
+        trigger = "long_silence"
+        urgency = "high"
+    elif silence_ms >= 2500:
+        trigger = "silence"
+        urgency = "medium"
+    elif fillers >= 3:
+        trigger = "fluency"
+        urgency = "medium"
+    elif unconfident:
+        trigger = "confidence"
+        urgency = "medium"
+
+    if not trigger:
+        return {
+            "should_intervene": False,
+            "tip": "",
+            "reason_tag": "none",
+            "urgency": "low",
+        }
+
+    # ------------------
+    # Ask LLM for ONE short tip
+    # ------------------
+    try:
+        user_msg = f"""
+Return STRICT JSON only.
+
+Trigger: {trigger}
+Write ONE short coaching tip (max 16 words).
+
+Rules:
+- Silence → suggest 1 clear sentence + 1 direct question
+- Fluency → slow down, remove fillers
+- Confidence → stronger phrasing
+
+Recent context:
+{transcript[-400:]}
+
+Agent last utterance:
+{agent_last}
+"""
+
+        raw = _responses_text(
+            COACH_SYSTEM_PROMPT,
+            user_msg,
+            COACH_MODEL,
+            max_output_tokens=120,
+        )
+
+        data = _extract_first_json_object(raw)
+        tip = (data or {}).get("tip", "").strip()
+
+        if not tip:
+            return {
+                "should_intervene": False,
+                "tip": "",
+                "reason_tag": "empty",
+                "urgency": "low",
+            }
+
+        # clamp length
+        tip = " ".join(tip.split()[:16])
+
+        _LAST_TIP_AT = now
+        return {
+            "should_intervene": True,
+            "tip": tip,
+            "reason_tag": trigger,
+            "urgency": urgency,
+        }
+
+    except Exception:
+        return {
+            "should_intervene": False,
+            "tip": "",
+            "reason_tag": "error",
+            "urgency": "low",
+        }
 
 
 def grade_exam(transcript: str) -> Dict[str, Any]:

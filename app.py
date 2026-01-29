@@ -352,6 +352,7 @@ from settings import client  # make sure this import exists
 
 from settings import client  # make sure this import exists
 
+# app.py
 @app.post("/coach")
 async def coach_endpoint(request: Request):
     redirect = require_login(request)
@@ -362,43 +363,29 @@ async def coach_endpoint(request: Request):
     if guard:
         return guard
 
-    # ---------- SAFE BODY PARSING ----------
     try:
         data = await request.json()
-        transcript = (data.get("transcript") or "").strip()
-    except Exception as e:
-        raw = (await request.body()).decode("utf-8", errors="ignore").strip()
-        print("[/coach] invalid JSON body:", repr(e))
-        print("[/coach] raw body:", raw[:200])
-        transcript = raw
+    except Exception:
+        return JSONResponse(
+            {"should_intervene": False, "tip": "", "reason_tag": "bad_json", "urgency": "low"},
+            status_code=200,
+        )
 
-    # ---------- DEBUG OPENAI SDK (TEMPORARY) ----------
+    transcript = (data.get("transcript") or "").strip()
+
+    meta = {
+        "silence_ms": int(data.get("silence_ms") or 0),
+        "agent_last_utterance": (data.get("agent_last_utterance") or "").strip(),
+    }
+
     try:
-        import openai
-        print("[/coach] openai version:", getattr(openai, "__version__", "unknown"))
-    except Exception as e:
-        print("[/coach] cannot import openai:", repr(e))
-
-    print("[/coach] client:", type(client))
-    print("[/coach] has client.responses:", hasattr(client, "responses"))
-
-    # ---------- SAFE COACHING ----------
-    try:
-        result = coach_tips(transcript)
-        return JSONResponse(result)
+        return JSONResponse(coach_tips(transcript, meta=meta))
     except Exception as e:
         import traceback
-        print("[/coach] coach_tips crashed:", repr(e))
+        print("[/coach] crashed:", e)
         print(traceback.format_exc())
-
-        # IMPORTANT: do NOT return 500 — keep UI alive
         return JSONResponse(
-            {
-                "should_intervene": False,
-                "tip": "",
-                "reason_tag": "server_error",
-                "urgency": "low",
-            },
+            {"should_intervene": False, "tip": "", "reason_tag": "server_error", "urgency": "low"},
             status_code=200,
         )
 
