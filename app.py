@@ -113,9 +113,8 @@ def _require_onboarding_or_redirect(request: Request):
 @app.get("/")
 def root(request: Request):
     if is_logged_in(request):
-        user = _me(request)
         role = _role(request)
-        if role == "recruiter" and is_admin(user):
+        if role == "recruiter":
             return RedirectResponse(url="/admin", status_code=302)
         return RedirectResponse(url="/app", status_code=302)
     return RedirectResponse(url="/login", status_code=302)
