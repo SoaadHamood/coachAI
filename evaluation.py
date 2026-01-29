@@ -73,6 +73,10 @@ def _response_to_text(r: Any) -> str:
 
 
 def _responses_text(system_prompt: str, user_prompt: str, model: str, max_output_tokens: int) -> str:
+    """
+    NOTE: We intentionally do NOT pass response_format here because some SDK builds reject it.
+    Instead, we enforce robust JSON extraction + parsing.
+    """
     if client is None:
         return ""
 
@@ -81,7 +85,6 @@ def _responses_text(system_prompt: str, user_prompt: str, model: str, max_output
         {"role": "user", "content": user_prompt},
     ]
 
-    # IMPORTANT: do NOT pass response_format=... here (your SDK rejects it)
     try:
         r = client.responses.create(
             model=model,
@@ -95,26 +98,85 @@ def _responses_text(system_prompt: str, user_prompt: str, model: str, max_output
 
 
 # -------------------------
-# JSON extraction (robust)
+# JSON extraction (more robust for production)
 # -------------------------
+_CODE_FENCE_RE = re.compile(r"```(?:json)?\s*([\s\S]*?)\s*```", re.IGNORECASE)
+
+
+def _strip_code_fences(t: str) -> str:
+    """
+    If the model wraps JSON in ```json ... ``` fences, extract the inner content.
+    If multiple fenced blocks exist, we keep the first.
+    """
+    if not t:
+        return t
+    m = _CODE_FENCE_RE.search(t)
+    if m:
+        return (m.group(1) or "").strip()
+    # also handle unclosed fences
+    t = re.sub(r"^\s*```(?:json)?\s*", "", t.strip(), flags=re.IGNORECASE)
+    t = re.sub(r"\s*```\s*$", "", t.strip())
+    return t.strip()
+
+
+def _extract_balanced_json_substring(t: str) -> Optional[str]:
+    """
+    Find the first balanced {...} object in a string.
+    Works even if the model adds text before/after JSON.
+    """
+    if not t:
+        return None
+
+    start = t.find("{")
+    if start == -1:
+        return None
+
+    depth = 0
+    in_str = False
+    esc = False
+    for i in range(start, len(t)):
+        ch = t[i]
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+        else:
+            if ch == '"':
+                in_str = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    return t[start : i + 1]
+    return None
+
+
 def _extract_first_json_object(text: str) -> Optional[dict]:
+    """
+    Robustly extract a JSON object from LLM output:
+    - strips ```json fences
+    - tries direct json.loads
+    - tries first balanced {...} substring
+    """
     if not text:
         return None
 
-    t = text.strip()
+    t = _strip_code_fences(text.strip())
 
-    # direct json
+    # Try direct JSON
     try:
         obj = json.loads(t)
         return obj if isinstance(obj, dict) else None
     except Exception:
         pass
 
-    # try first {...} range
-    i = t.find("{")
-    j = t.rfind("}")
-    if i != -1 and j != -1 and j > i:
-        cand = t[i : j + 1]
+    # Try first balanced JSON object inside noisy text
+    cand = _extract_balanced_json_substring(t)
+    if cand:
         try:
             obj = json.loads(cand)
             return obj if isinstance(obj, dict) else None
@@ -143,7 +205,7 @@ def _script_state(transcript: str) -> dict:
     feedback_done = bool(re.search(r"\b(survey|feedback|rate|rating)\b", a))
     near_closing = bool(re.search(r"\b(anything else|goodbye|bye|thank you for calling|have a (good|nice) day)\b", a))
 
-    # clarify: we ONLY count it if it's after the customer spoke at least once
+    # clarify: ONLY after the customer spoke at least once
     clarify_done = bool(_has_customer(transcript) and ("?" in a or re.search(r"\b(can you|could you|what|when|where|which|how)\b", a)))
 
     return {
@@ -185,7 +247,7 @@ def coach_tips(transcript: str) -> Dict[str, Any]:
     if client is None:
         return {"should_intervene": False, "tip": "", "reason_tag": "missing_key", "urgency": "low"}
 
-    # Only show tips right after CUSTOMER spoke (best timing)
+    # Show tips only right after CUSTOMER spoke (best timing)
     last = _last_nonempty_line(transcript).upper()
     if last and not last.startswith("CUSTOMER:"):
         return {"should_intervene": False, "tip": "", "reason_tag": "timing", "urgency": "low"}
@@ -206,6 +268,8 @@ def coach_tips(transcript: str) -> Dict[str, Any]:
     txt = _responses_text(COACH_SYSTEM_PROMPT, user_msg, COACH_MODEL, max_output_tokens=200)
     data = _extract_first_json_object(txt)
     if not data:
+        # In prod, seeing this means the model added non-JSON text/fences.
+        print("[evaluation] coach raw (non-json):", (txt or "")[:800])
         return {"should_intervene": False, "tip": "", "reason_tag": "parse_error", "urgency": "low"}
 
     tip = str(data.get("tip") or "").strip()
@@ -247,7 +311,6 @@ def grade_exam(transcript: str) -> Dict[str, Any]:
     data = _extract_first_json_object(txt)
 
     if not data:
-        # print raw to console for debugging
         print("[evaluation] grader raw (non-json):", (txt or "")[:800])
         return {
             "score": 0,
@@ -294,7 +357,9 @@ def evaluate_checklist(transcript: str, customer_type: str = "", emotion_level: 
     data = _extract_first_json_object(txt)
 
     if not data:
-        print("[evaluation] checklist raw (non-json):", (txt or "")[:800])
+        # This is the exact case you see on deploy:
+        # model returns fenced JSON or adds preface text -> parser fails.
+        print("[evaluation] checklist raw (non-json):", (txt or "")[:1200])
         return {
             "checklist_score": 0,
             "items": [],
