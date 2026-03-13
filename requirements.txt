@@ -8,3 +8,5 @@ pydantic
 websockets
 itsdangerous
 openai>=1.0.0
+requests
+openai
