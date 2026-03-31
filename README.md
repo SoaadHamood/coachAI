@@ -16,6 +16,13 @@ It listens to conversations, transcribes speech, analyzes agent behavior, and pr
 - 🌐 FastAPI backend with WebSockets
 
 ---
+<p align="center">
+  <img src="assets/training-ui.png" width="900"/>
+</p>
+
+<p align="center">
+  <em>Real-time coaching interface with live transcription and checklist-based guidance</em>
+</p>
 
 ## 🧩 System Architecture
 
