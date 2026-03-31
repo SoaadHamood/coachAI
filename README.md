@@ -40,7 +40,7 @@ Real-time tips + Final Report
 Backend URL:
 ```
 
-[https://coachai-production-](coachai-production-a2ab.up.railway.app)<id>.up.railway.app
+[https://coachai-production-]([coachai-production-a2ab.up.railway.app](https://coachai-production-48cf.up.railway.app/app))<id>.up.railway.app
 
 ```
 
