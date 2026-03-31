@@ -17,7 +17,7 @@ It listens to conversations, transcribes speech, analyzes agent behavior, and pr
 
 ---
 <p align="center">
- <img src="./assets/training-ui.png" width="900"/>
+ <img src="assets/training-ui.png" width="900"/>
 </p>
 
 <p align="center">
