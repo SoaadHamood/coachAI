@@ -37,7 +37,7 @@ Real-time tips + Final Report
 
 ## 🚀 Live Demo
 
-Backend URL:
+Backend URL:coachai-production-48cf.up.railway.app
 ```
 
 [https://coachai-production-](coachai-production-48cf.up.railway.app)<id>.up.railway.app
